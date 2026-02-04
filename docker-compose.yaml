@@ -64,8 +64,8 @@ services:
     depends_on:
       - db
       - redis
-      - backend
     command: celery -A config worker --loglevel=info
+
   celery_beat:
     build: ./backend
     container_name: education_celery_beat
@@ -77,7 +77,6 @@ services:
     depends_on:
       - db
       - redis
-      - backend
     command: celery -A config beat --loglevel=info
 
 volumes:
