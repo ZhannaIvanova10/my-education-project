@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   db:
     image: postgres:16-alpine
@@ -30,50 +32,52 @@ services:
       retries: 5
 
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    build: ./backend
     container_name: education_backend
     restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
     ports:
       - "8000:8000"
     volumes:
       - ./backend:/app
     env_file:
       - .env
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     command: >
       sh -c "python manage.py wait_for_db &&
              python manage.py migrate &&
              python manage.py runserver 0.0.0.0:8000"
 
   celery_worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    build: ./backend
     container_name: education_celery_worker
     restart: unless-stopped
-    depends_on:
-      - redis
-      - db
     env_file:
       - .env
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings
+    depends_on:
+      - db
+      - redis
+      - backend
     command: celery -A config worker --loglevel=info
   celery_beat:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    build: ./backend
     container_name: education_celery_beat
     restart: unless-stopped
-    depends_on:
-      - redis
-      - db
     env_file:
       - .env
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings
+    depends_on:
+      - db
+      - redis
+      - backend
     command: celery -A config beat --loglevel=info
 
 volumes:
