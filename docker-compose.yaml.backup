@@ -79,3 +79,4 @@ services:
     command: celery -A config beat --loglevel=info
 
 volumes:
+  postgres_data:
