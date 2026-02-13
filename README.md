@@ -258,3 +258,7 @@ bash
 ./check_final_submission.sh
 Скрипт проверит все критерии домашнего задания и покажет готовность к сдаче.
 >>>>>>> origin/homework/docker-compose
+
+## CI/CD Status
+[![CI/CD Pipeline](https://github.com/ZhannaIvanova10/my-education-project/actions/workflows/ci.yml/badge.svg)](https://github.com/ZhannaIvanova10/my-education-project/actions/workflows/ci.yml)
+
