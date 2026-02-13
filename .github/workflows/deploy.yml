@@ -2,111 +2,67 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ "homework/cicd-deploy" ]
+    branches: [ homework/cicd-deploy, develop, main ]
+  pull_request:
+    branches: [ develop ]
 
 jobs:
   tests:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Run tests
-        run: |
-          echo "🧪 Running tests..."
-          # Здесь должны быть ваши тесты
-          echo "✅ All tests passed!"
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.13'
+
+    - name: Install dependencies
+      run: |
+        cd backend
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run tests
+      run: |
+        cd backend
+        python manage.py test
+      continue-on-error: false  # Останавливаем при ошибке
+
+    - name: Test failure notification
+      if: failure()
+      run: echo "❌ Тесты не прошли! Деплой отменен."
 
   deploy:
     needs: tests
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/homework/cicd-deploy'
+    if: success()  # Запускаем только если тесты прошли
 
     steps:
-      - uses: actions/checkout@v4
+    - uses: actions/checkout@v3
 
-      - name: Build Docker image
-        run: |
-          echo "🚀 Building Docker image..."
-          docker build -t my-education-app .
-          echo "✅ Docker image built successfully!"
+    - name: Install SSH key
+      uses: webfactory/ssh-agent@v0.8.0
+      with:
+        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: Clean up existing container
-        run: |
-          echo "🧹 Cleaning up old container..."
-          docker stop my-app || true
-          docker rm my-app || true
-          echo "✅ Cleanup completed!"
+    - name: Deploy to server
+      env:
+        SSH_HOST: ${{ secrets.SSH_HOST }}
+        SSH_USER: ${{ secrets.SSH_USER }}
+      run: |
+        ssh -o StrictHostKeyChecking=no $SSH_USER@$SSH_HOST "
+          cd ~/my_education_project &&
+          git pull origin homework/cicd-deploy &&
+          docker-compose down &&
+          docker-compose up -d --build
+        "
 
-      - name: Run Docker container
-        run: |
-          echo "🚀 Starting container..."
-          docker run -d -p 8000:8000 --name my-app my-education-app
-          echo "✅ Container started!"
+    - name: Deploy success notification
+      if: success()
+      run: echo "✅ Деплой успешно выполнен!"
 
-      - name: Verify container is running
-        run: |
-          echo "🔍 Verifying container status..."
-          sleep 5
-          if docker ps | grep -q my-app; then
-            echo "✅ Container is running successfully!"
-          else
-            echo "❌ Container failed to start"
-            docker logs my-app
-            exit 1
-          fi
-name: CI/CD Pipeline
-
-on:
-  push:
-    branches: [ "homework/cicd-deploy" ]
-
-jobs:
-  tests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Run tests
-        run: |
-          echo "🧪 Running tests..."
-          # Здесь должны быть ваши тесты
-          echo "✅ All tests passed!"
-
-  deploy:
-    needs: tests
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/homework/cicd-deploy'
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build Docker image
-        run: |
-          echo "🚀 Building Docker image..."
-          docker build -t my-education-app .
-          echo "✅ Docker image built successfully!"
-
-      - name: Clean up existing container
-        run: |
-          echo "🧹 Cleaning up old container..."
-          docker stop my-app || true
-          docker rm my-app || true
-          echo "✅ Cleanup completed!"
-
-      - name: Run Docker container
-        run: |
-          echo "🚀 Starting container..."
-          docker run -d -p 8000:8000 --name my-app my-education-app
-          echo "✅ Container started!"
-
-      - name: Verify container is running
-        run: |
-          echo "🔍 Verifying container status..."
-          sleep 5
-          if docker ps | grep -q my-app; then
-            echo "✅ Container is running successfully!"
-          else
-            echo "❌ Container failed to start"
-            docker logs my-app
-            exit 1
-          fi
+    - name: Deploy failure notification
+      if: failure()
+      run: echo "❌ Деплой не удался!"
