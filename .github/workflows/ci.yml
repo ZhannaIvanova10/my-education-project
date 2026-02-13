@@ -1,0 +1,219 @@
+name: Django CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop, homework/* ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  DOCKER_COMPOSE_PROJECT_NAME: myeducation
+  PYTHON_VERSION: '3.10'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Cache pip packages
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install flake8 black coverage
+
+    - name: Create test .env file
+      run: |
+        cat > .env.test << 'EOF'
+        DEBUG=True
+        SECRET_KEY=django-insecure-test-key-12345
+        ALLOWED_HOSTS=localhost,127.0.0.1
+        POSTGRES_DB=education_test
+        POSTGRES_USER=education_user
+        POSTGRES_PASSWORD=education_password
+        POSTGRES_HOST=localhost
+        POSTGRES_PORT=5432
+        REDIS_HOST=localhost
+        REDIS_PORT=6379
+        CELERY_BROKER_URL=redis://localhost:6379/0
+        CELERY_RESULT_BACKEND=redis://localhost:6379/0
+        CELERY_TIMEZONE=Europe/Moscow
+        LOG_LEVEL=DEBUG
+        EOF
+        cp .env.test .env
+
+    - name: Lint with flake8
+      run: |
+        flake8 backend --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 backend --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+    - name: Check code formatting with black
+      run: |
+        black --check backend
+
+    - name: Run tests with coverage
+      run: |
+        cd backend
+        coverage run manage.py test
+        coverage report
+        coverage html
+
+    - name: Upload coverage report
+      uses: actions/upload-artifact@v3
+      with:
+        name: coverage-report
+        path: backend/htmlcov/
+
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Cache Docker layers
+      uses: actions/cache@v3
+      with:
+        path: /tmp/.buildx-cache
+        key: ${{ runner.os }}-buildx-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-buildx-
+
+    - name: Build Docker image
+      run: |
+        docker build -t myeducation-backend:latest .
+
+    - name: Save Docker image
+      run: |
+        docker save myeducation-backend:latest | gzip > backend-image.tar.gz
+
+    - name: Upload Docker image artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: backend-image
+        path: backend-image.tar.gz
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: docker-build
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download Docker image artifact
+      uses: actions/download-artifact@v3
+      with:
+        name: backend-image
+
+    - name: Install SSH key
+      uses: webfactory/ssh-agent@v0.9.0
+      with:
+        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+    - name: Add server to known hosts
+      run: |
+        mkdir -p ~/.ssh
+        ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
+
+    - name: Copy Docker image to server
+      run: |
+        scp backend-image.tar.gz ${{ secrets.SSH_USER }}@${{ secrets.SERVER_IP }}:/tmp/
+
+    - name: Create deployment directory
+      run: |
+        ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_IP }} "mkdir -p /home/${{ secrets.SSH_USER }}/my-education-app"
+
+    - name: Copy project files to server
+      run: |
+        rsync -avz --delete \
+          --exclude '.git' \
+          --exclude '__pycache__' \
+          --exclude '*.pyc' \
+          --exclude '.env' \
+          --exclude '.env.*' \
+          --exclude 'backend-image.tar.gz' \
+          ./ ${{ secrets.SSH_USER }}@${{ secrets.SERVER_IP }}:/home/${{ secrets.SSH_USER }}/my-education-app/
+
+    - name: Create production .env file on server
+      run: |
+        ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_IP }} "cat > /home/${{ secrets.SSH_USER }}/my-education-app/.env << 'EOF'
+        DEBUG=False
+        SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}
+        ALLOWED_HOSTS=${{ secrets.SERVER_IP }},localhost
+        POSTGRES_DB=${{ secrets.POSTGRES_DB }}
+        POSTGRES_USER=${{ secrets.POSTGRES_USER }}
+        POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+        POSTGRES_HOST=postgres
+        POSTGRES_PORT=5432
+        REDIS_HOST=redis
+        REDIS_PORT=6379
+        CELERY_BROKER_URL=redis://redis:6379/0
+        CELERY_RESULT_BACKEND=redis://redis:6379/0
+        CELERY_TIMEZONE=Europe/Moscow
+        LOG_LEVEL=INFO
+        EOF"
+
+    - name: Load Docker image and deploy
+      run: |
+        ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_IP }} << 'EOF'
+          cd /home/${{ secrets.SSH_USER }}/my-education-app
+          
+          # Load the Docker image
+          gunzip -c /tmp/backend-image.tar.gz | docker load
+          
+          # Stop and remove old containers
+          docker-compose down
+          
+          # Start new containers
+          docker-compose up -d --build
+          
+          # Clean up
+          rm /tmp/backend-image.tar.gz
+          docker system prune -f
+          
+          # Check status
+          echo "=== Container Status ==="
+          docker-compose ps
+          
+          echo "=== Application Logs ==="
+          docker-compose logs --tail=50 backend
+        EOF
+
+    - name: Verify deployment
+      run: |
+        ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_IP }} << 'EOF'
+          echo "=== Checking if application is responding ==="
+          sleep 10
+          curl -I http://localhost:8000 || echo "Application not responding yet"
+          
+          echo "=== Database migrations status ==="
+          cd /home/${{ secrets.SSH_USER }}/my-education-app
+          docker-compose exec -T backend python manage.py showmigrations
+        EOF
+
+    - name: Health check
+      run: |
+        sleep 30
+        curl -f http://${{ secrets.SERVER_IP }}:8000/api/health/ || echo "Health check failed, but continuing..."

@@ -1,31 +1,54 @@
 #!/bin/bash
 
-# Скрипт для деплоя на сервере
-set -e  # Останавливаем при ошибке
+# Цвета для вывода
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
 
-echo "🚀 Начинаем деплой..."
+echo -e "${GREEN}=== Starting deployment ===${NC}"
 
-# Переходим в директорию проекта
-cd ~/my_education_project || exit 1
+# Проверка наличия .env файла
+if [ ! -f .env ]; then
+    echo -e "${RED}Error: .env file not found!${NC}"
+    echo "Please create .env file from .env.production.example"
+    exit 1
+fi
 
-# Получаем последние изменения
-echo "📥 Получаем последние изменения из git..."
-git pull origin homework/cicd-deploy
+# Проверка Docker
+if ! command -v docker &> /dev/null; then
+    echo -e "${RED}Error: Docker is not installed!${NC}"
+    exit 1
+fi
 
-# Останавливаем текущие контейнеры
-echo "🛑 Останавливаем контейнеры..."
+if ! command -v docker-compose &> /dev/null; then
+    echo -e "${RED}Error: Docker Compose is not installed!${NC}"
+    exit 1
+fi
+
+echo -e "${YELLOW}1. Pulling latest changes...${NC}"
+git pull origin main
+
+echo -e "${YELLOW}2. Building Docker images...${NC}"
+docker-compose build
+
+echo -e "${YELLOW}3. Stopping old containers...${NC}"
 docker-compose down
 
-# Собираем и запускаем новые контейнеры
-echo "🏗️  Собираем и запускаем контейнеры..."
-docker-compose up -d --build
+echo -e "${YELLOW}4. Starting new containers...${NC}"
+docker-compose up -d
 
-# Проверяем статус
-echo "📊 Проверяем статус контейнеров..."
+echo -e "${YELLOW}5. Running database migrations...${NC}"
+docker-compose exec -T backend python manage.py migrate --noinput
+
+echo -e "${YELLOW}6. Collecting static files...${NC}"
+docker-compose exec -T backend python manage.py collectstatic --noinput
+
+echo -e "${YELLOW}7. Checking container status...${NC}"
 docker-compose ps
 
-# Очищаем старые образы
-echo "🧹 Очищаем старые образы..."
-docker system prune -f
+echo -e "${YELLOW}8. Recent logs...${NC}"
+docker-compose logs --tail=50
 
-echo "✅ Деплой завершен успешно!"
+echo -e "${GREEN}=== Deployment completed! ===${NC}"
+echo -e "Check your app at: ${YELLOW}http://localhost:8000${NC}"

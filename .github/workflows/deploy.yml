@@ -2,67 +2,84 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ homework/cicd-deploy, develop, main ]
+    branches: [ homework/cicd-deploy, main, develop ]
   pull_request:
     branches: [ develop ]
 
 jobs:
-  tests:
+  test-and-lint:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.13'
+        python-version: '3.11'
 
     - name: Install dependencies
       run: |
         cd backend
         python -m pip install --upgrade pip
         pip install -r requirements.txt
+        pip install flake8 black isort
+
+    - name: Run linters
+      run: |
+        cd backend
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+        black --check . || true
+        isort --check-only . || true
 
     - name: Run tests
       run: |
         cd backend
         python manage.py test
-      continue-on-error: false  # Останавливаем при ошибке
+      env:
+        DJANGO_SETTINGS_MODULE: config.settings
+        SECRET_KEY: ${{ secrets.SECRET_KEY }}
+        DB_NAME: ${{ secrets.DB_NAME }}
+        DB_USER: ${{ secrets.DB_USER }}
+        DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        DB_HOST: ${{ secrets.DB_HOST }}
+        DB_PORT: ${{ secrets.DB_PORT }}
 
-    - name: Test failure notification
-      if: failure()
-      run: echo "❌ Тесты не прошли! Деплой отменен."
+    - name: Check Docker build
+      run: |
+        docker-compose build
 
   deploy:
-    needs: tests
+    needs: test-and-lint
     runs-on: ubuntu-latest
-    if: success()  # Запускаем только если тесты прошли
+    if: github.ref == 'refs/heads/homework/cicd-deploy' && success()
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Install SSH key
       uses: webfactory/ssh-agent@v0.8.0
       with:
         ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-    - name: Deploy to server
-      env:
-        SSH_HOST: ${{ secrets.SSH_HOST }}
-        SSH_USER: ${{ secrets.SSH_USER }}
+    - name: Add host to known_hosts
       run: |
-        ssh -o StrictHostKeyChecking=no $SSH_USER@$SSH_HOST "
-          cd ~/my_education_project &&
+        mkdir -p ~/.ssh
+        ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+    - name: Copy .env file
+      run: |
+        echo "${{ secrets.ENV_FILE }}" > .env.production
+
+    - name: Deploy to server
+      run: |
+        ssh -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
+          cd /home/app/my-education-app &&
           git pull origin homework/cicd-deploy &&
+          cp /tmp/.env.production .env &&
           docker-compose down &&
-          docker-compose up -d --build
+          docker-compose up -d --build &&
+          docker-compose exec -T backend python manage.py migrate --noinput &&
+          docker-compose exec -T backend python manage.py collectstatic --noinput
         "
-
-    - name: Deploy success notification
-      if: success()
-      run: echo "✅ Деплой успешно выполнен!"
-
-    - name: Deploy failure notification
-      if: failure()
-      run: echo "❌ Деплой не удался!"
