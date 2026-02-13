@@ -31,7 +31,7 @@ INSTALLED_APPS = [
     # Third party apps
     'rest_framework',
     # Local apps
-    'education',
+    'education',  # Добавьте эту строку
 ]
 
 MIDDLEWARE = [
