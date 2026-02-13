@@ -38,7 +38,7 @@ services:
     command: >
       sh -c "python manage.py collectstatic --noinput &&
              python manage.py migrate --noinput &&
-             gunicorn --bind 0.0.0.0:8000 --workers 3 your_project.wsgi:application"
+             gunicorn --bind 0.0.0.0:8000 --workers 3 config.wsgi:application"
 
   # PostgreSQL
   postgres:
@@ -50,7 +50,7 @@ services:
     networks:
       - app_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -70,6 +70,7 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+
   # Celery Worker
   celery_worker:
     build:
@@ -82,7 +83,7 @@ services:
       - postgres
     networks:
       - app_network
-    command: celery -A your_project worker --loglevel=info
+    command: celery -A config worker --loglevel=info
     restart: unless-stopped
 
   # Celery Beat
@@ -97,7 +98,7 @@ services:
       - postgres
     networks:
       - app_network
-    command: celery -A your_project beat --loglevel=info
+    command: celery -A config beat --loglevel=info
     restart: unless-stopped
 
 volumes:

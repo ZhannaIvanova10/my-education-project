@@ -1,16 +1,20 @@
 from django.test import TestCase
 
-class EducationTests(TestCase):
-    """Тесты для проверки работы CI/CD"""
-    
-    def test_ci_cd_workflow(self):
-        """Тест для проверки что CI/CD pipeline работает"""
-        self.assertTrue(True, "CI/CD pipeline должен работать")
-    
-    def test_django_installed(self):
-        """Тест что Django правильно установлен"""
+
+class SimpleTest(TestCase):
+    def test_basic_addition(self):
+        """Простой тест для проверки работы CI/CD"""
+        self.assertEqual(1 + 1, 2)
+
+    def test_django_import(self):
+        """Проверка импорта Django"""
+        import django
+        self.assertTrue(True)
+
+    def test_education_app_imports(self):
+        """Проверка импорта нашего приложения"""
         try:
-            import django
-            self.assertTrue(True, "Django установлен")
+            from education import views
+            self.assertTrue(True)
         except ImportError:
-            self.fail("Django не установлен")
+            self.fail("Failed to import education app")
