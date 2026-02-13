@@ -35,15 +35,17 @@ jobs:
 
     - name: Install dependencies
       run: |
+        cd backend
         pip install -r requirements.txt
         pip install flake8 black
 
     - name: Create .env file for tests
       run: |
-        cat > .env << EOF
+        cat > backend/.env << EOF
         DEBUG=True
         SECRET_KEY=django-insecure-test-key-12345
         ALLOWED_HOSTS=localhost,127.0.0.1
+        DJANGO_SETTINGS_MODULE=config.settings
         POSTGRES_DB=education_test
         POSTGRES_USER=education_user
         POSTGRES_PASSWORD=education_password
@@ -53,15 +55,18 @@ jobs:
 
     - name: Run migrations
       run: |
+        cd backend
         python manage.py migrate
 
     - name: Run tests
       run: |
+        cd backend
         python manage.py test
 
     - name: Lint with flake8
       run: |
-        flake8 backend --count --select=E9,F63,F7,F82 --show-source --statistics
+        cd backend
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
 
   docker-build:
     runs-on: ubuntu-latest

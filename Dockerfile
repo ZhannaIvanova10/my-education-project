@@ -1,22 +1,13 @@
-FROM python:3.13.3-slim-bookworm
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        gcc \
-        libpq-dev \
-        curl \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+FROM python:3.10-slim
 
 WORKDIR /app
 
-COPY backend/requirements.txt .
+# Копируем только backend
+COPY backend/ /app/backend/
+COPY backend/requirements.txt /app/
 
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
-COPY backend/ .
+WORKDIR /app/backend
 
-EXPOSE 8000
-
-CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000"]
