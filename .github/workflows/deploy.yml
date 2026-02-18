@@ -2,9 +2,10 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ homework/cicd-deploy, main, develop ]
+    branches: [ homework/cicd-deploy, main, master, develop ]
   pull_request:
     branches: [ develop ]
+
 jobs:
   test-and-lint:
     runs-on: ubuntu-latest
@@ -23,7 +24,6 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         pip install flake8 black isort
-
     - name: Run linters
       run: |
         cd backend
@@ -44,6 +44,7 @@ jobs:
         DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
         DB_HOST: ${{ secrets.DB_HOST }}
         DB_PORT: ${{ secrets.DB_PORT }}
+
   docker-build:
     needs: test-and-lint
     runs-on: ubuntu-latest
@@ -55,7 +56,6 @@ jobs:
         docker-compose build
       env:
         DOCKER_BUILDKIT: 1
-
   deploy:
     needs: docker-build
     runs-on: ubuntu-latest
